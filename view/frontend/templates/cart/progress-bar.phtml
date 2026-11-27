@@ -1,0 +1,218 @@
+<?php declare(strict_types=1);
+/**
+ * Copyright © 2026 Blue Fairy Development. All rights reserved.
+ *
+ * Free-gift progress bar — Hyva/Alpine.js storefront template.
+ *
+ * Renders an Alpine.js component that reads its state out of Hyva's customer-section
+ * payload. It does NOT poll.
+ *
+ * It does not fetch /barstate in init(): Hyva's own checkCartShouldUpdate loop replaces
+ * the cart DOM about every 2.5 seconds, which destroys and re-creates this component, so
+ * init() would run, and fetch, about 4 times per 10 seconds for every shopper sitting on
+ * the cart page.
+ *
+ * THE POPUP'S APPROACH DOES NOT WORK HERE. The popup can defer to first open; the bar has no
+ * open — the bar IS the rendering, so removing the fetch from init() leaves nothing to show.
+ * And Alpine discards component state on every re-init, so it cannot remember the previous
+ * answer either. The data has to come from outside the component.
+ *
+ * It arrives on Hyva's `private-content-loaded` window event, under our own section key.
+ * Hyva dispatches that event on every page load and after every cart POST, and the fetch it
+ * sometimes makes — fetchPrivateContent([]) — asks for ALL sections, so ours rides inside a
+ * request the page was already making. Steady state on the cart page is ZERO requests of
+ * ours.
+ *
+ * THREE WAYS THE BAR GETS ITS DATA, IN COST ORDER, AND NONE OF THEM IS A TIMER:
+ *
+ *   1. init() SEEDS FROM mage-cache-storage. A synchronous localStorage read of the very
+ *      payload the event would have carried. This exists because a
+ *      listener-only component goes BLANK: Hyva replaces the cart DOM, Alpine builds a fresh
+ *      component with bars: [], and if no further private-content-loaded arrives it renders
+ *      nothing. After a run of cart updates the component is present with an empty bars array
+ *      and its fallback flag never set. Fetching on every init would hide this.
+ *   2. THE EVENT updates it thereafter — every page load and every cart POST.
+ *   3. ONE FETCH, and only for a shopper whose stored payload predates this section. Hyva
+ *      serves that cache WITHOUT any network call as long as it holds `cart` and `customer`
+ *      (private-content.phtml, the cookieVersion === storageVersion branch), so such a
+ *      shopper would otherwise never be corrected. Guarded by a flag, never on a timer, and
+ *      it stops happening as soon as their next cart POST rotates private_content_version.
+ *
+ * An EMPTY bars list is a real answer and must not trigger (3). Only an ABSENT key does.
+ *
+ * The CSS transition on the fill width provides a smooth animation whenever
+ * the progress changes — no additional animation library required.
+ *
+ * @var \Magento\Framework\View\Element\Template $block
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \BlueFairy\FreeGift\ViewModel\Cart\ProgressBar $viewModel
+ * @var \Hyva\Theme\ViewModel\HyvaCsp $hyvaCsp
+ *
+ * Strict CSP: the endpoint and the section key travel in data-* attributes, and every Alpine
+ * attribute names a property or a method of the freeGiftProgressBar component; the per-bar
+ * logic lives in methods that read the x-for's `bar`.
+ */
+
+$viewModel = $block->getData('view_model');
+// phpcs:disable Generic.Files.LineLength.TooLong
+// Tailwind classes used here are registered for the theme build in
+// view/frontend/tailwind/module.css. A comment alone does not safelist anything.
+// phpcs:enable Generic.Files.LineLength.TooLong
+
+if (!$viewModel instanceof \BlueFairy\FreeGift\ViewModel\Cart\ProgressBar) {
+    return;
+}
+
+if (!$viewModel->isEnabled()) {
+    return;
+}
+
+$barStateUrl = $block->getUrl('bluefairy_freegift/cart/barstate');
+
+// The section name registered in BlueFairy_FreeGift's etc/frontend/di.xml. It is passed in
+// rather than written into the JS so the two cannot be renamed apart silently; a test in
+// each package pins them to the same string.
+$sectionKey = 'bluefairy_freegift_bars';
+?>
+<script>
+    document.addEventListener('alpine:init', function () {
+        Alpine.data('freeGiftProgressBar', function () {
+            return {
+                barStateUrl: '',
+                sectionKey: '',
+                bars: [],
+                fallbackAttempted: false,
+
+                // NO FETCH here - but not nothing either. Hyva dispatches
+                // private-content-loaded once per page load and after cart POSTs. When the cart
+                // DOM is REPLACED in between, Alpine builds a fresh component with bars: [] and
+                // no event is coming, so a listener-only component renders an empty bar until
+                // the shopper does something else.
+                // So init() seeds from the SAME payload the event carries, read straight out of
+                // Hyva's mage-cache-storage. That is a synchronous localStorage read: no request,
+                // no round trip. The event listener still handles every later update.
+                init: function () { this.readConfig(); this.seedFromStorage(); },
+
+                readConfig: function () {
+                    var data = this.$el.dataset;
+                    this.barStateUrl = data.barStateUrl || '';
+                    this.sectionKey = data.sectionKey || '';
+                },
+
+                seedFromStorage: function () {
+                    var raw;
+                    try {
+                        raw = window.localStorage.getItem('mage-cache-storage');
+                    } catch (e) {
+                        // Private mode, or storage disabled: wait for the event.
+                        return;
+                    }
+                    if (!raw) { return; }
+
+                    var data;
+                    try { data = JSON.parse(raw); } catch (e) { return; }
+
+                    var section = data && data[this.sectionKey];
+                    if (section && Array.isArray(section.bars)) {
+                        this.bars = section.bars;
+                    }
+                },
+
+                // Bound as @private-content-loaded.window="onPrivateContent", so it receives the
+                // event. Hyva hands the WHOLE section payload to every listener; each component
+                // takes its own key. The key is absent (not empty) when this shopper's cached
+                // payload predates the section - which is a different situation from "no bars
+                // apply", and only the first of the two deserves a network call.
+                onPrivateContent: function (event) {
+                    var data = event && event.detail ? event.detail.data : null;
+                    if (!data || typeof data !== 'object') { return; }
+
+                    var section = data[this.sectionKey];
+                    if (section && Array.isArray(section.bars)) {
+                        this.bars = section.bars;
+                        return;
+                    }
+
+                    this.fetchBarsOnce();
+                },
+
+                fetchBarsOnce: function () {
+                    if (this.fallbackAttempted) { return; }
+                    this.fallbackAttempted = true;
+
+                    var self = this;
+                    fetch(self.barStateUrl, {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    }).then(function (response) {
+                        if (!response.ok) { return null; }
+                        return response.json();
+                    }).then(function (data) {
+                        if (Array.isArray(data)) {
+                            self.bars = data;
+                        }
+                    }).catch(function () {});
+                },
+
+                // Per-bar values for the x-for below; `this.bar` is the loop's current bar.
+                barClass: function () {
+                    return this.bar.is_met ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200';
+                },
+
+                barIsMet: function () {
+                    return this.bar.is_met ? '1' : '0';
+                },
+
+                messageClass: function () {
+                    return this.bar.is_met ? 'text-green-700' : 'text-gray-800';
+                },
+
+                barMessage: function () {
+                    return this.bar.is_met ? this.bar.message_met : this.bar.message;
+                },
+
+                fillClass: function () {
+                    return this.bar.is_met ? 'bg-green-600' : 'bg-blue-600';
+                },
+
+                fillStyle: function () {
+                    var pct = Number(this.bar.percentage);
+                    if (!isFinite(pct)) { pct = 0; }
+                    return 'width: ' + Math.max(0, Math.min(100, pct)) + '%;';
+                }
+            };
+        });
+    }, { once: true });
+</script>
+<?php $hyvaCsp->registerInlineScript() ?>
+
+<div x-data="freeGiftProgressBar"
+     data-bar-state-url="<?= $escaper->escapeHtmlAttr($barStateUrl) ?>"
+     data-section-key="<?= $escaper->escapeHtmlAttr($sectionKey) ?>"
+     @private-content-loaded.window="onPrivateContent"
+     class="freegift-progress-bars mb-6">
+
+    <template x-for="bar in bars" :key="bar.rule_id">
+        <div class="freegift-progress-bar mb-4 p-4 rounded-lg border"
+             :class="barClass"
+             :data-rule-id="bar.rule_id"
+             :data-is-met="barIsMet">
+
+            <p class="text-sm font-semibold mb-2"
+               :class="messageClass"
+               x-text="barMessage"></p>
+
+            <div class="relative w-full h-2.5 bg-gray-200 rounded-full overflow-hidden"
+                 role="progressbar"
+                 :aria-valuenow="bar.percentage"
+                 aria-valuemin="0"
+                 aria-valuemax="100"
+                 aria-label="<?= $escaper->escapeHtmlAttr(__('Free gift progress')) ?>">
+                <div class="h-full rounded-full transition-all duration-500 ease-in-out"
+                     :class="fillClass"
+                     :style="fillStyle"></div>
+            </div>
+        </div>
+    </template>
+</div>

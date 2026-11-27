@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © 2026 Blue Fairy Development. All rights reserved.
+ */
+-->
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <!--
+            Swap the Luma gift-label template for the Tailwind/Alpine.js Hyva version.
+        -->
+        <referenceBlock name="bluefairy.freegift.product.label">
+            <action method="setTemplate">
+                <argument name="template" xsi:type="string">BlueFairy_FreeGiftHyva::product/gift-label.phtml</argument>
+            </action>
+        </referenceBlock>
+    </body>
+</page>

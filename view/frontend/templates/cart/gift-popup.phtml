@@ -1,0 +1,542 @@
+<?php declare(strict_types=1);
+/**
+ * Copyright © 2026 Blue Fairy Development. All rights reserved.
+ *
+ * Free-gift popup — Hyva/Alpine.js storefront template.
+ *
+ * Renders one Alpine.js component per eligible customer_select rule. The
+ * component fetches the available gifts from the giftpopup endpoint the first
+ * time the shopper opens the popup, and POSTs to giftadd on "Add to Cart". On success it dispatches the Hyva standard
+ * reload-customer-section-data event to refresh the cart section.
+ *
+ * The form key is server-rendered into the component's data attributes; the block
+ * is declared cacheable="false" in the layout so session data is never stored.
+ *
+ * @var \Magento\Framework\View\Element\Template $block
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \BlueFairy\FreeGift\ViewModel\Cart\GiftPopup $viewModel
+ * @var \Hyva\Theme\ViewModel\HyvaCsp $hyvaCsp
+ *
+ * Strict CSP: each rule's settings travel in data-* attributes on its root, and every Alpine
+ * attribute names a property or a method of the freeGiftPopup component; the per-gift and
+ * per-option logic lives in methods that read the x-for's `gift` and `option`.
+ */
+
+$viewModel = $block->getData('view_model');
+// phpcs:disable Generic.Files.LineLength.TooLong
+// Tailwind classes used here are registered for the theme build in
+// view/frontend/tailwind/module.css. A comment alone does not safelist anything.
+// phpcs:enable Generic.Files.LineLength.TooLong
+
+if (!$viewModel instanceof \BlueFairy\FreeGift\ViewModel\Cart\GiftPopup) {
+    return;
+}
+
+if (!$viewModel->isEnabled()) {
+    return;
+}
+
+$eligibleRules = $viewModel->getEligibleRules();
+
+if ($eligibleRules === []) {
+    return;
+}
+
+$giftPopupUrl = $viewModel->getGiftPopupUrl();
+$giftAddUrl   = $viewModel->getGiftAddUrl();
+$formKey      = $viewModel->getFormKey();
+// Script context: JSON_HEX_TAG keeps a label from closing the script element early, and
+// JSON_HEX_QUOT/APOS/AMP keep it inert inside a JavaScript string.
+$scriptJsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
+
+$popupLabels = json_encode(
+    [
+        'loading'       => (string) __('Loading gifts...'),
+        'outOfStock'    => (string) __('Out of stock'),
+        'selectOption'  => (string) __('-- Select --'),
+        'selectOptions' => (string) __('Please select all options.'),
+        'rateLimited'   => (string) __('Too many requests. Please wait and try again.'),
+        'addFailed'     => (string) __('Unable to add the gift. Please try again.'),
+        'addSuccess'    => (string) __('Gift added to your cart!'),
+        'noGifts'       => (string) __('No gifts available right now.'),
+    ],
+    $scriptJsonFlags
+);
+?>
+<script>
+    var freeGiftPopupLabels = <?= /* @noEscape */ $popupLabels ?>;
+
+    function freeGiftPopup() {
+        return {
+            ruleId: 0,
+            popupUrl: '',
+            addUrl: '',
+            giftQty: 1,
+            giftsTaken: 0,
+            // The server renders no popup for a rule already at its limit, so a component starts open to adds.
+            limitReached: false,
+            formKey: '',
+            gifts: [],
+            fetched: false,
+            selectedOptions: {},
+            open: false,
+            loading: false,
+            adding: false,
+            statusMessage: '',
+            statusError: false,
+            _closeTimer: null,
+
+            init: function () {
+                var self = this;
+                self.readConfig();
+
+                // FOCUS TRAP AND SCROLL LOCK, HAND-ROLLED.
+                //
+                // `x-trap.noscroll="open"` is not used: x-trap belongs to Alpine's Focus
+                // plugin, which is NOT installed, and no file in the Hyvä theme uses it.
+                // Without the plugin Alpine logs "You can't use [x-trap] without first
+                // installing the Focus plugin" and does nothing: no focus trap on a dialog a
+                // shopper has to make a choice in, and no scroll lock behind it.
+                //
+                // Implemented here rather than by shipping the plugin, because the LUMA
+                // template already hand-rolls exactly this (openDialog/trapFocus in
+                // FreeGift/view/frontend/templates/cart/gift-popup.phtml) and requiring a
+                // merchant to add an Alpine plugin to their theme build to make our modal
+                // accessible is a cost we would be exporting.
+                self.$watch('open', function (isOpen) {
+                    if (isOpen) { self.trapFocus(); } else { self.releaseFocus(); }
+                });
+            },
+
+            readConfig: function () {
+                var data = this.$el.dataset;
+                this.ruleId = parseInt(data.ruleId, 10) || 0;
+                this.popupUrl = data.popupUrl || '';
+                this.addUrl = data.addUrl || '';
+                this.giftQty = parseInt(data.giftQty, 10) || 1;
+                this.formKey = data.formKey || '';
+                this.giftsTaken = parseInt(data.giftsTaken, 10) || 0;
+            },
+
+            _lastFocus: null,
+            _keydownHandler: null,
+
+            focusableInDialog: function () {
+                var root = this.$refs.dialog;
+                if (!root) { return []; }
+                return Array.prototype.slice.call(root.querySelectorAll(
+                    'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+                )).filter(function (el) { return el.offsetParent !== null; });
+            },
+
+            trapFocus: function () {
+                var self = this;
+                self._lastFocus = document.activeElement;
+                document.body.style.overflow = 'hidden';
+
+                self._keydownHandler = function (event) {
+                    if (event.key !== 'Tab') { return; }
+                    var focusable = self.focusableInDialog();
+                    if (focusable.length === 0) { return; }
+                    var first = focusable[0];
+                    var last = focusable[focusable.length - 1];
+                    if (event.shiftKey && document.activeElement === first) {
+                        event.preventDefault();
+                        last.focus();
+                    } else if (!event.shiftKey && document.activeElement === last) {
+                        event.preventDefault();
+                        first.focus();
+                    }
+                };
+                document.addEventListener('keydown', self._keydownHandler);
+
+                self.$nextTick(function () {
+                    var focusable = self.focusableInDialog();
+                    if (focusable.length > 0) { focusable[0].focus(); }
+                });
+            },
+
+            releaseFocus: function () {
+                document.body.style.overflow = '';
+                if (this._keydownHandler) {
+                    document.removeEventListener('keydown', this._keydownHandler);
+                    this._keydownHandler = null;
+                }
+                if (this._lastFocus && typeof this._lastFocus.focus === 'function') {
+                    this._lastFocus.focus();
+                }
+                this._lastFocus = null;
+            },
+
+            destroy: function () {
+                clearTimeout(this._closeTimer);
+                // Hyvä replaces the cart DOM on every cart refresh, so this component is
+                // torn down and rebuilt constantly. Releasing here matters: a teardown
+                // while the dialog was open would otherwise leave document.body locked at
+                // overflow:hidden with no component left to unlock it.
+                this.releaseFocus();
+            },
+
+            sanitiseImageUrl: function (url) {
+                return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : '';
+            },
+
+            // Names the Alpine attributes below use. Each one reads component state, or the
+            // x-for's current `gift` / `option`, and returns what the attribute needs.
+            triggerVisible: function () { return !this.limitReached; },
+
+            close: function () { this.open = false; },
+
+            titleId: function () { return 'freegift-dialog-title-' + this.ruleId; },
+
+            statusClass: function () {
+                return this.statusError
+                    ? 'bg-red-50 border border-red-200 text-red-700'
+                    : 'bg-green-50 border border-green-200 text-green-700';
+            },
+
+            showEmpty: function () { return !this.loading && this.gifts.length === 0; },
+
+            showList: function () { return !this.loading; },
+
+            noGiftsLabel: function () { return freeGiftPopupLabels.noGifts; },
+
+            giftImageUrl: function () { return this.sanitiseImageUrl(this.gift.image_url); },
+
+            giftName: function () { return this.gift.name || this.gift.sku; },
+
+            hasOptions: function () {
+                return this.gift.product_type === 'configurable'
+                    && Array.isArray(this.gift.options)
+                    && this.gift.options.length > 0;
+            },
+
+            onOptionChange: function (event) {
+                this.setOption(this.gift.sku, this.option.id, event.target.value);
+            },
+
+            addDisabled: function () {
+                return this.adding || !this.gift.in_stock || !this.canAdd(this.gift);
+            },
+
+            outOfStock: function () { return !this.gift.in_stock; },
+
+            addThisGift: function () { this.addGift(this.gift); },
+
+            openDialog: function () {
+                this.open = true;
+                // Once per component lifetime. A component torn down by a cart refresh and
+                // rebuilt starts again with fetched=false, which is correct: its data may be
+                // stale by then, and it still costs nothing until the shopper opens it.
+                if (!this.fetched) { this.fetchGifts(); }
+            },
+
+            fetchGifts: function () {
+                var self = this;
+                self.loading = true;
+                self.fetched = true;
+
+                var body = new FormData();
+                body.append('form_key', self.formKey);
+                body.append('rule_id', String(self.ruleId));
+
+                fetch(self.popupUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: body
+                }).then(function (response) {
+                    if (!response.ok) { return null; }
+                    return response.json();
+                }).then(function (data) {
+                    self.loading = false;
+                    if (!Array.isArray(data) || data.length === 0) { return; }
+                    self.gifts = data;
+                    // Deliberately does NOT open the dialog. The shopper opens it
+                    // with the trigger button. Auto-opening on load put an overlay
+                    // over the whole cart page for every shopper.
+                }).catch(function () {
+                    self.loading = false;
+                });
+            },
+
+            setOption: function (sku, optionId, value) {
+                if (!this.selectedOptions[sku]) {
+                    this.selectedOptions[sku] = {};
+                }
+                this.selectedOptions[sku][String(optionId)] = value;
+            },
+
+            canAdd: function (gift) {
+                if (gift.product_type !== 'configurable') { return true; }
+                if (!Array.isArray(gift.options) || gift.options.length === 0) { return true; }
+                var skuOpts = this.selectedOptions[gift.sku] || {};
+                return gift.options.every(function (opt) {
+                    return !!skuOpts[String(opt.id)];
+                });
+            },
+
+            addGift: function (gift) {
+                var self = this;
+
+                if (!self.canAdd(gift)) {
+                    self.statusMessage = freeGiftPopupLabels.selectOptions;
+                    self.statusError = true;
+                    return;
+                }
+
+                if (!gift.in_stock || self.adding) { return; }
+
+                self.adding = true;
+                self.statusMessage = '';
+                self.statusError = false;
+
+                var body = new FormData();
+                body.append('form_key', self.formKey);
+                body.append('rule_id', String(self.ruleId));
+                body.append('sku', gift.sku || '');
+                body.append('qty', '1');
+
+                var opts = self.selectedOptions[gift.sku] || {};
+                Object.keys(opts).forEach(function (attrId) {
+                    body.append('selected_options[' + attrId + ']', opts[attrId]);
+                });
+
+                fetch(self.addUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: body
+                }).then(function (response) {
+                    if (response.status === 429) {
+                        self.statusMessage = freeGiftPopupLabels.rateLimited;
+                        self.statusError = true;
+                        self.adding = false;
+                        return null;
+                    }
+                    if (!response.ok) {
+                        self.statusMessage = freeGiftPopupLabels.addFailed;
+                        self.statusError = true;
+                        self.adding = false;
+                        return null;
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    if (!data) { return; }
+                    if (typeof data.error === 'string' && data.error) {
+                        self.statusMessage = data.error;
+                        self.statusError = true;
+                        self.adding = false;
+                        return;
+                    }
+                    self.statusMessage = freeGiftPopupLabels.addSuccess;
+                    self.statusError = false;
+                    self.adding = false;
+                    // The server says how many gift lines of the rule the cart holds now; at the
+                    // rule's Gift Quantity the next add would be refused, so withdraw the trigger.
+                    if (typeof data.gifts_taken === 'number') {
+                        self.giftsTaken = data.gifts_taken;
+                    }
+                    if (data.limit_reached === true) {
+                        self.limitReached = true;
+                    }
+                    window.dispatchEvent(new CustomEvent('reload-customer-section-data', {detail: {}}));
+                    self._closeTimer = setTimeout(function () { self.open = false; }, 800);
+                }).catch(function () {
+                    self.statusMessage = freeGiftPopupLabels.addFailed;
+                    self.statusError = true;
+                    self.adding = false;
+                });
+            }
+        };
+    }
+
+    document.addEventListener('alpine:init', function () {
+        Alpine.data('freeGiftPopup', freeGiftPopup);
+    }, { once: true });
+</script>
+<?php $hyvaCsp->registerInlineScript() ?>
+
+<?php foreach ($eligibleRules as $rule): ?>
+    <?php
+    // The shopper already holds the rule's Gift Quantity of gifts: another add would be
+    // refused, so the trigger is not offered at all.
+    if ($rule['limit_reached']) {
+        continue;
+    }
+    $ruleId = (int) $rule['rule_id'];
+    $defaultHeader = (string) __('Choose your free gift');
+    $popupHeader = $rule['popup_header'] !== '' ? $rule['popup_header'] : $defaultHeader;
+    $defaultBtn = (string) __('Add to Cart');
+    $addBtnLabel = $rule['popup_add_button_label'] !== '' ? $rule['popup_add_button_label'] : $defaultBtn;
+    $giftQty = max(1, (int) $rule['gift_qty']);
+    ?>
+<div x-data="freeGiftPopup"
+     class="freegift-popup-root mb-4"
+     data-rule-id="<?= $escaper->escapeHtmlAttr((string) $ruleId) ?>"
+     data-popup-url="<?= $escaper->escapeHtmlAttr($giftPopupUrl) ?>"
+     data-add-url="<?= $escaper->escapeHtmlAttr($giftAddUrl) ?>"
+     data-gift-qty="<?= (int) $giftQty ?>"
+     data-form-key="<?= $escaper->escapeHtmlAttr($formKey) ?>"
+     data-gifts-taken="<?= (int) $rule['gifts_taken'] ?>">
+
+    <?php
+    /*
+     * THE TRIGGER IS RENDERED UNCONDITIONALLY, AND THAT IS THE POINT.
+     *
+     * Putting it inside `x-if="gifts.length > 0"` would force the component to fetch the
+     * whole gift list on init just to decide whether to draw a button — for every shopper
+     * on the cart page, opened or not. Hyvä replaces the cart DOM roughly every 2.5
+     * seconds, re-running init each time, so that would be 4 uncached POSTs per 10
+     * seconds per shopper, each loading every gift product and generating cache-resized
+     * image URLs.
+     *
+     * Whether this rule is offered at all is a SERVER-side fact — this block only renders
+     * for an eligible customer_select rule — so the button does not need the client to
+     * confirm it. The list is fetched on first open instead, and an empty result is shown
+     * as a message rather than prevented by hiding the button. That trade is deliberate:
+     * a rare "No gifts available right now." beats a permanent poll for everyone.
+     */
+    ?>
+    <button type="button"
+            class="btn btn-primary w-full"
+            x-show="triggerVisible"
+            @click="openDialog">
+        <?= $escaper->escapeHtml($popupHeader) ?>
+    </button>
+
+    <div x-show="open"
+         x-cloak
+         class="fixed inset-0 z-40 bg-black/50"
+         @click.self="close"
+         aria-hidden="true"></div>
+
+    <div x-show="open"
+         x-cloak
+         x-ref="dialog"
+         role="dialog"
+         aria-modal="true"
+         :aria-labelledby="titleId"
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="close">
+        <div class="relative bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-y-auto"
+             style="max-height: 90vh;">
+
+            <button type="button"
+                    class="absolute top-3 right-3 p-1 text-gray-400
+                           hover:text-gray-700 focus:outline-none"
+                    @click="close"
+                    aria-label="<?= $escaper->escapeHtmlAttr(__('Close')) ?>">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+
+            <div class="p-6">
+                <h2 :id="titleId"
+                    class="text-lg font-semibold text-gray-900 mb-4 pr-6">
+                    <?= $escaper->escapeHtml($popupHeader) ?>
+                </h2>
+
+                <div x-show="statusMessage"
+                     :class="statusClass"
+                     class="rounded p-3 mb-4 text-sm"
+                     role="status"
+                     x-text="statusMessage"></div>
+
+                <template x-if="loading">
+                    <p class="text-gray-500 text-sm py-4 text-center">
+                        <?= $escaper->escapeHtml(__('Loading gifts...')) ?>
+                    </p>
+                </template>
+
+                <template x-if="showEmpty">
+                    <p class="text-gray-500 text-sm py-4 text-center"
+                       x-text="noGiftsLabel"></p>
+                </template>
+
+                <template x-if="showList">
+                    <div class="space-y-4">
+                        <template x-for="gift in gifts" :key="gift.sku">
+                            <div class="flex gap-4 items-start p-3 border
+                                        border-gray-100 rounded-lg">
+                                <template x-if="gift.image_url">
+                                    <img :src="giftImageUrl"
+                                         :alt="gift.name"
+                                         class="w-20 h-20 object-contain
+                                                flex-shrink-0 rounded border border-gray-100">
+                                </template>
+
+                                <div class="flex-1 min-w-0">
+                                    <p class="font-medium text-gray-900 truncate"
+                                       x-text="giftName"></p>
+
+                                    <!--
+                                        The popup shows each gift's image, name and
+                                        description. x-text sets textContent, so the
+                                        merchant's copy renders as text, never as markup.
+                                    -->
+                                    <template x-if="gift.description">
+                                        <p class="mt-1 text-sm text-gray-600"
+                                           x-text="gift.description"></p>
+                                    </template>
+
+                                    <template
+                                        x-if="hasOptions">
+                                        <div class="mt-2 space-y-2">
+                                            <template x-for="option in gift.options"
+                                                      :key="option.id">
+                                                <label class="block text-sm">
+                                                    <span class="font-medium text-gray-700"
+                                                          x-text="option.label"></span>
+                                                    <select
+                                                        class="mt-1 block w-full rounded
+                                                               border-gray-300 text-sm
+                                                               focus:border-blue-500
+                                                               focus:ring-blue-500"
+                                                        :data-option-id="option.id"
+                                                        @change="onOptionChange">
+                                                        <option value="">
+                                                            <?= $escaper->escapeHtml(
+                                                                __('-- Select --')
+                                                            ) ?>
+                                                        </option>
+                                                        <template x-for="val in option.values"
+                                                                  :key="val.id">
+                                                            <option :value="val.id"
+                                                                    x-text="val.label"></option>
+                                                        </template>
+                                                    </select>
+                                                </label>
+                                            </template>
+                                        </div>
+                                    </template>
+
+                                    <button type="button"
+                                            class="mt-3 btn btn-primary text-sm px-4 py-2
+                                                   disabled:opacity-50 disabled:cursor-not-allowed"
+                                            :disabled="addDisabled"
+                                            @click="addThisGift">
+                                        <template x-if="outOfStock">
+                                            <span>
+                                                <?= $escaper->escapeHtml(__('Out of stock')) ?>
+                                            </span>
+                                        </template>
+                                        <template x-if="gift.in_stock">
+                                            <span>
+                                                <?= $escaper->escapeHtml($addBtnLabel) ?>
+                                            </span>
+                                        </template>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endforeach; ?>

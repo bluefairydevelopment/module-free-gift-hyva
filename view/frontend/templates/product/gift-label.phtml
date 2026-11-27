@@ -1,0 +1,57 @@
+<?php declare(strict_types=1);
+/**
+ * Copyright © 2026 Blue Fairy Development. All rights reserved.
+ *
+ * Free-gift label — Hyvä/Tailwind storefront template (cart page, PDP).
+ *
+ * Tailwind-styled override of the Luma gift-label template. Renders every
+ * matching gift rule badge for the current product. The BadgeRenderer returns
+ * pre-escaped HTML so it is output verbatim; each badge is wrapped in a
+ * utility-class container compatible with the Hyvä/Tailwind theme.
+ *
+ * Tailwind safelist: inline-flex items-center gap-2 mt-2
+ *
+ * @var \Magento\Catalog\Block\Product\View $block
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \BlueFairy\FreeGift\ViewModel\Product\GiftLabel $viewModel
+ */
+
+$viewModel = $block->getData('view_model');
+
+if (!$viewModel instanceof \BlueFairy\FreeGift\ViewModel\Product\GiftLabel) {
+    return;
+}
+
+if (!$viewModel->isEnabled()) {
+    return;
+}
+
+$product = null;
+if (method_exists($block, 'getProduct')) {
+    $product = $block->getProduct();
+}
+
+if (!$product instanceof \Magento\Catalog\Api\Data\ProductInterface) {
+    return;
+}
+
+$sku = (string) $product->getSku();
+
+if ($sku === '') {
+    return;
+}
+
+$rules = $viewModel->getRulesForProduct($sku);
+
+if ($rules === []) {
+    return;
+}
+?>
+<?php foreach ($rules as $rule): ?>
+    <?php $badgeHtml = $viewModel->renderBadge($rule); ?>
+    <?php if ($badgeHtml === '') { continue; } ?>
+    <div class="inline-flex items-center gap-2 mt-2"
+         data-rule-id="<?= $escaper->escapeHtmlAttr((string) $rule->getRuleId()) ?>">
+        <?= /* @noEscape */ $badgeHtml ?>
+    </div>
+<?php endforeach; ?>

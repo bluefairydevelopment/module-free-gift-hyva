@@ -1,0 +1,139 @@
+<?php declare(strict_types=1);
+/**
+ * Copyright © 2026 Blue Fairy Development. All rights reserved.
+ *
+ * @var \BlueFairy\FreeGift\Block\Widget\Countdown $block
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \Hyva\Theme\ViewModel\HyvaCsp $hyvaCsp
+ *
+ * Strict CSP: the end time travels in data-end-timestamp, and every Alpine attribute names a
+ * property or a method of the freeGiftCountdown component registered below.
+ */
+
+if (!$block->isEnabled()) {
+    return;
+}
+
+$endTimestamp = $block->getEndTimestamp();
+
+if ($endTimestamp === null) {
+    return;
+}
+
+$label = $block->getLabel();
+?>
+<div x-data="freeGiftCountdown"
+     data-end-timestamp="<?= (int) $endTimestamp ?>"
+     class="freegift-countdown inline-flex flex-col gap-2 p-4 rounded-lg border
+            border-yellow-300 bg-yellow-50 text-gray-800 text-sm">
+
+    <?php if ($label !== ''): ?>
+        <p class="font-semibold">
+            <?= $escaper->escapeHtml($label) ?>
+        </p>
+    <?php endif; ?>
+
+    <div x-show="isRunning"
+         role="timer"
+         aria-label="<?= $escaper->escapeHtmlAttr(__('Free gift countdown')) ?>"
+         class="flex items-baseline gap-3 font-mono">
+
+        <span class="flex flex-col items-center">
+            <span class="text-2xl font-bold tabular-nums" x-text="days"></span>
+            <span class="text-xs text-gray-500"><?= $escaper->escapeHtml(__('d')) ?></span>
+        </span>
+
+        <span class="text-xl font-bold text-gray-400" aria-hidden="true">:</span>
+
+        <span class="flex flex-col items-center">
+            <span class="text-2xl font-bold tabular-nums" x-text="hours"></span>
+            <span class="text-xs text-gray-500"><?= $escaper->escapeHtml(__('h')) ?></span>
+        </span>
+
+        <span class="text-xl font-bold text-gray-400" aria-hidden="true">:</span>
+
+        <span class="flex flex-col items-center">
+            <span class="text-2xl font-bold tabular-nums" x-text="minutes"></span>
+            <span class="text-xs text-gray-500"><?= $escaper->escapeHtml(__('m')) ?></span>
+        </span>
+
+        <span class="text-xl font-bold text-gray-400" aria-hidden="true">:</span>
+
+        <span class="flex flex-col items-center">
+            <span class="text-2xl font-bold tabular-nums" x-text="seconds"></span>
+            <span class="text-xs text-gray-500"><?= $escaper->escapeHtml(__('s')) ?></span>
+        </span>
+    </div>
+
+    <p x-show="expired"
+       x-cloak
+       aria-live="polite"
+       class="font-semibold text-red-600">
+        <?= $escaper->escapeHtml(__('Promotion has ended')) ?>
+    </p>
+</div>
+
+<script>
+    document.addEventListener('alpine:init', function () {
+        Alpine.data('freeGiftCountdown', function () {
+            return {
+                endTimestamp: 0,
+                days: '0',
+                hours: '00',
+                minutes: '00',
+                seconds: '00',
+                expired: false,
+                _timer: null,
+
+                init: function () {
+                    this.endTimestamp = parseInt(this.$el.dataset.endTimestamp, 10) || 0;
+                    window.addEventListener('pagehide', this.destroy.bind(this), { once: true });
+                    if (!this.endTimestamp || this.endTimestamp <= 0) {
+                        this.expired = true;
+                        return;
+                    }
+                    this.tick();
+                    this._timer = setInterval(() => { this.tick(); }, 1000);
+                },
+
+                destroy: function () {
+                    if (this._timer !== null) {
+                        clearInterval(this._timer);
+                        this._timer = null;
+                    }
+                },
+
+                tick: function () {
+                    var remaining = Math.max(0, this.endTimestamp - Math.floor(Date.now() / 1000));
+
+                    if (remaining <= 0) {
+                        this.days = '0';
+                        this.hours = '00';
+                        this.minutes = '00';
+                        this.seconds = '00';
+                        this.expired = true;
+                        if (this._timer !== null) {
+                            clearInterval(this._timer);
+                            this._timer = null;
+                        }
+                        return;
+                    }
+
+                    this.days = String(Math.floor(remaining / 86400));
+                    this.hours = this.pad(Math.floor((remaining % 86400) / 3600));
+                    this.minutes = this.pad(Math.floor((remaining % 3600) / 60));
+                    this.seconds = this.pad(remaining % 60);
+                },
+
+                isRunning: function () {
+                    return !this.expired;
+                },
+
+                pad: function (n) {
+                    return n < 10 ? '0' + n : String(n);
+                }
+            };
+        });
+    }, { once: true });
+</script>
+<?php $hyvaCsp->registerInlineScript() ?>

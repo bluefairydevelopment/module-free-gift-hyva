@@ -1,0 +1,43 @@
+/**
+ * Copyright © 2026 Blue Fairy Development. All rights reserved.
+ *
+ * Tailwind source registration for BlueFairy_FreeGiftHyva.
+ *
+ * Hyvä's Tailwind build scans the theme, not this module. `npx hyva-sources`
+ * discovers this file and emits an @import for it into the theme's
+ * generated/hyva-source.css, which is what brings the classes used below into
+ * the compiled stylesheet. Without it every utility that appears only in these
+ * templates is absent at runtime and the element renders as though the class
+ * were never written — silently, with no console error and no 404.
+ *
+ * For example `bg-opacity-50` and `inset-x-0` would be missing from the build,
+ * so the gift modal's backdrop would render as opaque black over the whole cart
+ * page and its dialog would collapse to the left edge.
+ *
+ * After installing or upgrading this module the merchant must rebuild the
+ * theme's CSS (`npm run build` in the theme's web/tailwind directory).
+ */
+
+@source "../templates/**/*.phtml";
+
+/* Composed at runtime in x-bind:class expressions, so keep them regardless of
+ * how the scanner treats the surrounding JavaScript string. */
+@source inline("bg-green-50");
+@source inline("border-green-200");
+@source inline("text-green-700");
+@source inline("bg-green-600");
+@source inline("bg-gray-50");
+@source inline("border-gray-200");
+@source inline("text-gray-800");
+@source inline("bg-blue-600");
+@source inline("bg-red-50");
+@source inline("border-red-200");
+@source inline("text-red-700");
+
+/* Modal chrome. The overlay's translucency and the dialog's full-bleed
+ * positioning are correctness, not decoration: without them the shopper
+ * cannot see or click the cart underneath. */
+@source inline("bg-black/50");
+@source inline("inset-0");
+@source inline("z-40");
+@source inline("z-50");

@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © 2026 Blue Fairy Development. All rights reserved.
+ */
+-->
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceBlock name="bluefairy.freegift.cart.progressbar" remove="true"/>
+        <referenceBlock name="bluefairy.freegift.cart.giftpopup" remove="true"/>
+        <referenceBlock name="bluefairy.freegift.product.label">
+            <action method="setTemplate">
+                <argument name="template" xsi:type="string">BlueFairy_FreeGiftHyva::product/gift-label.phtml</argument>
+            </action>
+        </referenceBlock>
+
+        <!--
+            Remove the Luma countdown injected by the base module (it is replaced below
+            with the Hyva/Alpine.js version).
+        -->
+        <referenceBlock name="bluefairy.freegift.cart.countdown" remove="true"/>
+
+        <referenceContainer name="checkout.cart.form.before">
+            <block class="BlueFairy\FreeGift\Block\Widget\Countdown"
+                   name="bluefairy.freegift.hyva.countdown"
+                   before="-"
+                   cacheable="false"
+                   template="BlueFairy_FreeGiftHyva::widget/countdown.phtml">
+            </block>
+            <block class="Magento\Framework\View\Element\Template"
+                   name="bluefairy.freegift.hyva.progressbar"
+                   after="bluefairy.freegift.hyva.countdown"
+                   template="BlueFairy_FreeGiftHyva::cart/progress-bar.phtml">
+                <arguments>
+                    <argument name="view_model" xsi:type="object">BlueFairy\FreeGift\ViewModel\Cart\ProgressBar</argument>
+                </arguments>
+            </block>
+            <block class="Magento\Framework\View\Element\Template"
+                   name="bluefairy.freegift.hyva.giftpopup"
+                   after="bluefairy.freegift.hyva.progressbar"
+                   cacheable="false"
+                   template="BlueFairy_FreeGiftHyva::cart/gift-popup.phtml">
+                <arguments>
+                    <argument name="view_model" xsi:type="object">BlueFairy\FreeGift\ViewModel\Cart\GiftPopup</argument>
+                </arguments>
+            </block>
+        </referenceContainer>
+    </body>
+</page>

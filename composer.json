@@ -1,0 +1,20 @@
+{
+    "name": "bluefairy/module-free-gift-hyva",
+    "description": "BlueFairy Free Gift Hyva Theme integration",
+    "type": "magento2-module",
+    "license": "MIT",
+    "require": {
+        "php": "~8.4.0 || ~8.5.0",
+        "bluefairy/module-free-gift": "^1.2",
+        "hyva-themes/magento2-theme-module": "^1.3.11",
+        "magento/framework": "~103.0.8"
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "BlueFairy\\FreeGiftHyva\\": ""
+        }
+    }
+}
