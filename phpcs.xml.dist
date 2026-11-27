@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<!--
+    Coding standard for BlueFairy_FreeGiftHyva. Run from the package root, using a
+    Magento installation's phpcs:
+
+        <magento-root>/vendor/bin/phpcs standard=phpcs.xml.dist .
+
+    (flag name written without its leading double hyphen above, because phpcs' own
+    XML parser rejects a literal double hyphen inside a comment.)
+
+    THIS FILE DID NOT EXIST UNTIL 2026-11-27. In the module-free-gift monorepo this
+    ruleset lived at the REPOSITORY ROOT and named all three packages. Extracting this
+    package left it behind, and the rig gate said so plainly: ERROR: the
+    "phpcs.xml.dist" coding standard is not installed.
+
+    IT ALSO READS .phtml, WHICH MATTERS MORE HERE THAN THE NAME SUGGESTS. Almost all
+    of this package is templates - four of them - and the components inside them are
+    Alpine.js. phpstan analyses .php only and the unit suite never parses markup, so
+    without this nothing examines the files that carry the behaviour.
+
+    The exclusion list is deliberately the monorepo's, so that "clean under our
+    standard" means the same thing in both repositories.
+-->
+<ruleset name="BlueFairyFreeGiftHyva">
+    <description>Magento 2 coding standard for every shipped file in bluefairy/module-free-gift-hyva.</description>
+
+    <rule ref="Magento2">
+        <!--
+            Magento's docblock-format opinions. House style, not defects: they require an
+            @param line per argument even where the signature is fully typed, and a
+            description on every property.
+        -->
+        <exclude name="Magento2.Annotation.MethodAnnotationStructure"/>
+        <exclude name="Magento2.Annotation.MethodArguments"/>
+        <exclude name="Magento2.Commenting.ClassPropertyPHPDocFormatting"/>
+        <exclude name="Magento2.Commenting.ClassAndInterfacePHPDocFormatting"/>
+
+        <!--
+            Formatting of multi-line calls and declarations. phpcbf can rewrite all of
+            these; none changes behaviour.
+        -->
+        <exclude name="PSR2.Methods.FunctionCallSignature"/>
+        <exclude name="Squiz.Functions.MultiLineFunctionDeclaration"/>
+        <exclude name="Squiz.WhiteSpace.ScopeClosingBrace"/>
+        <exclude name="Squiz.ControlStructures.ControlSignature"/>
+        <exclude name="PEAR.ControlStructures.ControlSignature"/>
+        <exclude name="Generic.Files.LineLength"/>
+        <exclude name="Magento2.Whitespace.MultipleEmptyLines"/>
+
+        <!--
+            NOT excluded, deliberately: Magento2.CodeAnalysis.EmptyBlock and
+            Magento2.Functions.DiscouragedFunction. Muting them ruleset-wide after
+            reviewing the existing instances also mutes them for every file written
+            afterwards. Anything reviewed and accepted carries a per-line phpcs:ignore
+            with its reason, so a new one is a failure.
+        -->
+    </rule>
+
+    <file>.</file>
+
+    <exclude-pattern>*/Test/*</exclude-pattern>
+    <exclude-pattern>*/docs/*</exclude-pattern>
+    <exclude-pattern>*/docs-build/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+
+    <arg name="extensions" value="php,phtml"/>
+    <arg name="colors"/>
+    <arg value="p"/>
+</ruleset>

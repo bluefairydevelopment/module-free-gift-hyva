@@ -3,6 +3,21 @@
 ## Unreleased
 
 ### Tests
+- **This package had no way to run its own tests.** In the monorepo the phpunit, phpcs and phpstan
+  configurations and the test bootstrap all lived at the repository root and covered every package.
+  Extracting this one took its eight test files and left all four behind, so `phpunit -c
+  phpunit.xml.dist` answered "Could not read XML from file" and phpcs answered `the
+  "phpcs.xml.dist" coding standard is not installed`. It now carries its own `Test/bootstrap.php`,
+  `phpunit.xml.dist`, `phpcs.xml.dist` and `phpstan.neon.dist`, all four `export-ignore`d so a
+  merchant receives none of them.
+- The bootstrap prepends this package's own PSR-4 mapping after Magento's, so the suite exercises
+  this tree rather than whatever copy sits in a Magento install's `vendor/bluefairy/`. It refuses
+  outright when `MAGENTO_ROOT` is unset, rather than falling back to a guess.
+- phpstan analyses at **PHP 8.3**, the lower bound of this package's own composer constraint, so a
+  construct that only works on 8.4 is reported here instead of at parse time on a customer's
+  server.
+- phpcs reads `.phtml` as well as `.php`, which matters more here than the name suggests: almost
+  all of this package is templates, and the components inside them are Alpine.js.
 
 - **The cross-package assertions that left with this package are back, here.** When this package
   was inside the `module-free-gift` monorepo, the base suite checked this package's popup template,

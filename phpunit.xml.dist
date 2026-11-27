@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    STRICTNESS IS PART OF THE SUITE, not a preference. Without failOnRisky a test
+    that asserts NOTHING exits 0, and the suite is read by a human looking at one
+    word - which would be "OK".
+
+    THIS FILE DID NOT EXIST UNTIL 2026-11-27. In the module-free-gift monorepo the
+    phpunit configuration lived at the REPOSITORY ROOT and named every package's
+    Test/Unit directory. When this package was extracted it took its eight test
+    files and left the runner behind, so for a few hours it shipped tests that
+    could not be run at all: `phpunit -c phpunit.xml.dist` answered "Could not
+    read XML from file". The rig gate caught it on the first run.
+
+    Integration tests are NOT in the default suite: a run that silently skipped
+    them would report the same "OK" as a run that executed them.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.6/phpunit.xsd"
+         bootstrap="Test/bootstrap.php"
+         colors="true"
+         columns="max"
+         cacheResult="false"
+         failOnRisky="true"
+         failOnWarning="true"
+         failOnSkipped="true"
+         failOnIncomplete="true"
+         beStrictAboutTestsThatDoNotTestAnything="true"
+         beStrictAboutOutputDuringTests="true"
+         defaultTestSuite="Unit">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>Test/Unit</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
