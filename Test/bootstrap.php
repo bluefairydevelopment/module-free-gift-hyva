@@ -49,22 +49,33 @@ if ($magentoRoot === '' || !is_file($magentoRoot . '/vendor/autoload.php')) {
 // reflection through this same bootstrap shows the constant present.
 require $magentoRoot . '/vendor/autoload.php';
 
-if (!defined('BP')) {
-    define('BP', $magentoRoot);
-}
-
-// AND the unit-test framework, but ONLY outside a phar. PHPUnit needs it -
-// Magento's TestFramework ObjectManager helper lives there, and without it 274
-// of these tests error. phpstan runs FROM a .phar, and that bootstrap reaches
-// app/bootstrap.php, which calls stream_wrapper_unregister('phar') and leaves
-// the analyser unable to read its own archive: it then dies inside its own
-// error renderer naming a class unrelated to anything.
+// BP IS DELIBERATELY NOT DEFINED HERE, and must not be added.
 //
-// So: the composer loader above is what BOTH tools need, and this is what only
-// PHPUnit needs.
-if (\Phar::running() === '' && is_file($magentoRoot . '/dev/tests/unit/framework/bootstrap.php')) {
-    require $magentoRoot . '/dev/tests/unit/framework/bootstrap.php';
-}
+// This bootstrap was adapted from module-recipes-hyva's, which does define it. That
+// is right there and wrong here: RegisterModuleForHyvaConfigTest asserts the branch
+// of the observer that runs when BP is ABSENT, and it does so first in the method
+// because defining BP is irreversible for the process. Its docblock records the fact
+// as measured - "undefined under Test/bootstrap.php" - and the monorepo bootstrap
+// this package came from never defined it either.
+//
+// Defining it here turned that test red with "Failed asserting that true is false",
+// which is what a copied-in assumption looks like when the destination had written
+// down the opposite.
+
+// MAGENTO'S UNIT-TEST FRAMEWORK IS DELIBERATELY NOT LOADED, and must not be added.
+//
+// This is the second assumption carried in from module-recipes-hyva's bootstrap that
+// is right there and wrong here. That package needs the framework - its comment says
+// 274 tests error without it, because they use Magento's TestFramework ObjectManager
+// helper. None of this package's 42 tests do, and the monorepo bootstrap it came from
+// never loaded it either.
+//
+// Loading it matters because that bootstrap reaches app/bootstrap.php, which DEFINES
+// BP. RegisterModuleForHyvaConfigTest asserts the branch of the observer that runs
+// when BP is absent, and records that absence as a measured fact. So requiring the
+// framework here turned that test red with "Failed asserting that true is false" -
+// and it stayed red after the explicit define('BP') was removed, because this was the
+// real source.
 
 
 $packageRoot = dirname(__DIR__);
