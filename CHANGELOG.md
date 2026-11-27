@@ -1,5 +1,27 @@
 # Changelog — BlueFairy_FreeGiftHyva
 
+## Unreleased
+
+### Tests
+
+- **The cross-package assertions that left with this package are back, here.** When this package
+  was inside the `module-free-gift` monorepo, the base suite checked this package's popup template,
+  its FEATURES.md claims and its README against the core's code. Removing the directory took those
+  with it. `TheTemplatesMatchTheCoreContractAndTheirOwnDocsTest` carries them, in two kinds:
+  - **This package's own files**: the popup skips a rule at its limit and withdraws the trigger;
+    FEATURES.md claims nothing the templates do not support (no breakpoint classes, no grid, no
+    modal transition); the README names the Hyvä theme constraint composer.json requires.
+  - **The contract with the core**: the popup consumes exactly the `gifts_taken` and
+    `limit_reached` keys the core's `GiftPopup` view model and `GiftAdd` controller produce. The
+    core keeps asserting that it SENDS them; this asserts this package READS them. Split that way,
+    each repository is answerable for its own half, and a change to either side fails where it was
+    made - which is stronger than one test reading both out of one tree.
+- **No dev dependency was added.** `bluefairy/module-free-gift` is already a hard `require`, so the
+  core is in the Magento root's `vendor/` wherever this package is installed. `require-dev` would
+  break `composer install` in this public repository, because the core is not on public Packagist.
+  When the core is missing the check **fails and says how to run the suite properly** - it does not
+  skip, because a skip whose reason never expires is how a suite goes quiet.
+
 ## 1.3.0 — 2026-11-27
 
 **This package is now free and open source under the MIT licence, and lives in its own public
