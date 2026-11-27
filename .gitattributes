@@ -1,14 +1,20 @@
 # What a merchant does NOT receive.
 #
-# This file has to live INSIDE the package directory, not only at the repository
-# root: `git archive` reads .gitattributes from within the tree it is archiving,
-# so in a monorepo a root-only file governs a whole-repo archive nobody
-# publishes while every real per-package zip still ships everything below it.
-# Per-package rules are therefore kept here.
+# `git archive` reads .gitattributes from within the tree it is archiving. In the
+# monorepo this package came from, that meant a root-only file governed a whole-repo
+# archive nobody published while every real per-package zip shipped everything below
+# it, so the rules had to live inside the package.
 #
-# The same fact cuts the other way: phpcs.xml.dist, phpstan.neon.dist and
-# phpunit.xml.dist exist ONLY at the repository root, which is outside every package
-# archive already, so a per-package rule for them would never match anything.
+# This repository IS the package, so root and package are the same tree and the
+# distinction no longer bites. The paragraph that used to sit here said phpcs.xml.dist,
+# phpstan.neon.dist and phpunit.xml.dist exist only at the repository root and so need
+# no rule. That stopped being true on 2026-11-27, when this package got its own four
+# after the extraction left the monorepo's behind - they are listed below, and without
+# those lines a merchant would receive them.
 Test/ export-ignore
 docs/screenshots/ export-ignore
 .gitattributes export-ignore
+phpunit.xml.dist export-ignore
+phpcs.xml.dist export-ignore
+phpstan.neon.dist export-ignore
+docs-build/ export-ignore

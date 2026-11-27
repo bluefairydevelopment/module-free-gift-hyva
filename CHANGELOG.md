@@ -1,5 +1,42 @@
 # Changelog — BlueFairy_FreeGiftHyva
 
+## Unreleased
+
+### Tests
+- **This package had no way to run its own tests.** In the monorepo the phpunit, phpcs and phpstan
+  configurations and the test bootstrap all lived at the repository root and covered every package.
+  Extracting this one took its eight test files and left all four behind, so `phpunit -c
+  phpunit.xml.dist` answered "Could not read XML from file" and phpcs answered `the
+  "phpcs.xml.dist" coding standard is not installed`. It now carries its own `Test/bootstrap.php`,
+  `phpunit.xml.dist`, `phpcs.xml.dist` and `phpstan.neon.dist`, all four `export-ignore`d so a
+  merchant receives none of them.
+- The bootstrap prepends this package's own PSR-4 mapping after Magento's, so the suite exercises
+  this tree rather than whatever copy sits in a Magento install's `vendor/bluefairy/`. It refuses
+  outright when `MAGENTO_ROOT` is unset, rather than falling back to a guess.
+- phpstan analyses at **PHP 8.3**, the lower bound of this package's own composer constraint, so a
+  construct that only works on 8.4 is reported here instead of at parse time on a customer's
+  server.
+- phpcs reads `.phtml` as well as `.php`, which matters more here than the name suggests: almost
+  all of this package is templates, and the components inside them are Alpine.js.
+
+- **The cross-package assertions that left with this package are back, here.** When this package
+  was inside the `module-free-gift` monorepo, the base suite checked this package's popup template,
+  its FEATURES.md claims and its README against the core's code. Removing the directory took those
+  with it. `TheTemplatesMatchTheCoreContractAndTheirOwnDocsTest` carries them, in two kinds:
+  - **This package's own files**: the popup skips a rule at its limit and withdraws the trigger;
+    FEATURES.md claims nothing the templates do not support (no breakpoint classes, no grid, no
+    modal transition); the README names the Hyvä theme constraint composer.json requires.
+  - **The contract with the core**: the popup consumes exactly the `gifts_taken` and
+    `limit_reached` keys the core's `GiftPopup` view model and `GiftAdd` controller produce. The
+    core keeps asserting that it SENDS them; this asserts this package READS them. Split that way,
+    each repository is answerable for its own half, and a change to either side fails where it was
+    made - which is stronger than one test reading both out of one tree.
+- **No dev dependency was added.** `bluefairy/module-free-gift` is already a hard `require`, so the
+  core is in the Magento root's `vendor/` wherever this package is installed. `require-dev` would
+  break `composer install` in this public repository, because the core is not on public Packagist.
+  When the core is missing the check **fails and says how to run the suite properly** - it does not
+  skip, because a skip whose reason never expires is how a suite goes quiet.
+
 ## 1.3.0 — 2026-11-27
 
 **This package is now free and open source under the MIT licence, and lives in its own public
